@@ -2,7 +2,6 @@ import qibo
 qibo.set_backend("tensorflow")
 from sklearn.datasets import load_digits
 import numpy as np
-from scipy.optimize import minimize
 from qibo import hamiltonians, gates, models, K
 from qibo.hamiltonians import Hamiltonian
 from sklearn.metrics import roc_curve, auc
