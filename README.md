@@ -7,4 +7,4 @@ It represents the variational quantum algorithm for one-class classification pro
 
 The code implementation includes the applications to a Handwritten digit dataset with scikit-learn and Fashion-MNIST dataset.
 
-You have two options for data encoding scheme, one is amplitude encoding and the other is Flexiblem Representation of Quantum Images (FRQI) encoding.
+You have two options for data encoding scheme, one is amplitude encoding and the other is Flexible Representation of Quantum Images (FRQI) encoding.
