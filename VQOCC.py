@@ -201,7 +201,6 @@ class VQOCC_circuit():
 
         params = self.params
         loss_history = []
-        self.cost_fn = "vqocc"
         ntrash = self.ntrash
 
         ham = cost_hamiltonian(self.nqubits,ntrash)
