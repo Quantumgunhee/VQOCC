@@ -14,30 +14,30 @@ import torch.optim as optim
 
 def DCAE(idx, lr, wt):
     digits = load_digits()
-    idx_list = list(range(10))
-    idx_list.remove(idx)
+    neg_list = list(range(10))
+    neg_list.remove(idx)
     vector_train = []
-    vector_test = []
-    vector_nontarget = []
-    digit_target = digits.data[np.where(digits.target == idx)]/16.0
+    vector_test_pos = []
+    vector_test_neg = []
+    digit_pos = digits.data[np.where(digits.target == idx)]/16.0
     for i in range(100):
-        vector_train.append(digit_target[i].reshape((8,8)))
+        vector_train.append(digit_pos[i].reshape((8,8)))
     for i in range(100,170):
-        vector_test.append(digit_target[i].reshape((8,8)))
-    for idx_nontarget in idx_list:
-        digit_nontarget = digits.data[np.where(digits.target == idx_nontarget)]/16.0
+        vector_test_pos.append(digit_pos[i].reshape((8,8)))
+    for idx_neg in neg_list:
+        digit_neg = digits.data[np.where(digits.target == idx_neg)]/16.0
         for i in range(70):
-            vector_nontarget.append(digit_nontarget[i].reshape((8,8)))
+            vector_test_neg.append(digit_neg[i].reshape((8,8)))
     vector_train = np.array(vector_train)
-    vector_test = np.array(vector_test)
-    vector_nontarget = np.array(vector_nontarget)
+    vector_test_pos = np.array(vector_test_pos)
+    vector_test_neg = np.array(vector_test_neg)
 
     vector_train = vector_train.reshape(100,1,8,8)
     vector_train = torch.from_numpy(vector_train)
-    vector_test = vector_test.reshape(vector_test.shape[0],1,8,8)
-    vector_test = torch.from_numpy(vector_test)
-    vector_nontarget = vector_nontarget.reshape(vector_nontarget.shape[0],1,8,8)
-    vector_nontarget = torch.from_numpy(vector_nontarget)
+    vector_test_pos = vector_test_pos.reshape(vector_test_pos.shape[0],1,8,8)
+    vector_test_pos = torch.from_numpy(vector_test_pos)
+    vector_test_neg = vector_test_neg.reshape(vector_test_neg.shape[0],1,8,8)
+    vector_test_neg = torch.from_numpy(vector_test_neg)
 
     train_dataloader = DataLoader(vector_train, batch_size=10, shuffle=True)
 
@@ -108,18 +108,18 @@ def DCAE(idx, lr, wt):
     for epoch in range(n_epochs):
         train(epoch)
 
-    test_vec = Variable(vector_test)
-    output = autoencoder(test_vec.float())
-    scores_test = torch.sum((output - test_vec) ** 2, dim=tuple(range(1, output.dim())))
-    scores_test = scores_test.detach().numpy()
+    test_pos_vec = Variable(vector_test_pos)
+    output = autoencoder(test_pos_vec.float())
+    scores_pos = torch.sum((output - test_pos_vec) ** 2, dim=tuple(range(1, output.dim())))
+    scores_pos = scores_pos.detach().numpy()
 
-    nontarget_vec = Variable(vector_nontarget)
-    output = autoencoder(nontarget_vec.float())
-    scores_nontarget = torch.sum((output - nontarget_vec) ** 2, dim=tuple(range(1, output.dim())))
-    scores_nontarget = scores_nontarget.detach().numpy()
+    test_neg_vec = Variable(vector_test_neg)
+    output = autoencoder(test_neg_vec.float())
+    scores_neg = torch.sum((output - test_neg_vec) ** 2, dim=tuple(range(1, output.dim())))
+    scores_neg = scores_neg.detach().numpy()
 
-    y_true = np.array([0]*len(scores_test)+[1]*len(scores_nontarget))
-    y_score = np.append(scores_test,scores_nontarget)
+    y_true = np.array([0]*len(scores_pos)+[1]*len(scores_neg))
+    y_score = np.append(scores_pos,scores_neg)
     fpr, tpr, _ = roc_curve(y_true, y_score)
     auc_measure = auc(fpr,tpr)
 

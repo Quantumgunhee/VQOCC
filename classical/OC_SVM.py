@@ -5,6 +5,8 @@ from sklearn.datasets import load_digits
 import tensorflow as tf
 import cv2
 
+
+
 def OC_SVM(dataset,idx):
     '''
     OC-SVM returning AUC measure of the test dataset
@@ -17,59 +19,59 @@ def OC_SVM(dataset,idx):
         auc_measure : AUC measure of the test dataset
     '''
 
-    vector_target_train = []
-    vector_target_test = []
-    vector_nontarget = []
-    idx_list = list(range(10))
-    idx_list.remove(idx)
+    vector_train = []
+    vector_test_pos = []
+    vector_test_neg = []
+    neg_list = list(range(10))
+    neg_list.remove(idx)
 
     if dataset == "Handwritten":
         digits = load_digits()
-        target_digit = digits.data[np.where(digits.target == idx)]
+        digit_pos = digits.data[np.where(digits.target == idx)]
 
         for i in range(100):
-            vector_target_train.append(np.array(target_digit[i]))
+            vector_train.append(np.array(digit_pos[i]))
         for i in range(100,170):
-            vector_target_test.append(np.array(target_digit[i]))
-        for idx_nontarget in idx_list:
-            nontarget_digit = digits.data[np.where(digits.target == idx_nontarget)]
+            vector_test_pos.append(np.array(digit_pos[i]))
+        for idx_neg in neg_list:
+            digit_neg = digits.data[np.where(digits.target == idx_neg)]
             for i in range(70):
-                vector_nontarget.append(np.array(nontarget_digit[i]))
+                vector_test_neg.append(np.array(digit_neg[i]))
 
-        vector_target_train= np.array(vector_target_train)
-        vector_target_test= np.array(vector_target_test)
-        vector_nontarget= np.array(vector_nontarget)
+        vector_train= np.array(vector_train)
+        vector_test_pos= np.array(vector_test_pos)
+        vector_test_neg= np.array(vector_test_neg)
 
-        perm_target = np.random.permutation(70)
-        perm_nontarget = np.random.permutation(630)
-        vector_target_val = vector_target_test[perm_target[:7]]
-        vector_nontarget_val = vector_nontarget[perm_nontarget[:63]]
+        perm_pos = np.random.permutation(70)
+        perm_neg = np.random.permutation(630)
+        vector_val_pos = vector_test_pos[perm_pos[:7]]
+        vector_val_neg = vector_test_neg[perm_neg[:63]]
 
     elif dataset == "FMNIST":
         fashion_mnist = tf.keras.datasets.fashion_mnist
         (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
         x_train, x_test = x_train / 255.0, x_test / 255.0
-        target_digit = x_train[np.where(y_train == idx)]
+        digit_pos = x_train[np.where(y_train == idx)]
 
         for i in range(100):
-            vector = cv2.resize(target_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-            vector_target_train.append(vector)
+            vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+            vector_train.append(vector)
         for i in range(100,200):
-            vector = cv2.resize(target_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-            vector_target_test.append(vector)
-        for idx_nontarget in idx_list:
-            nontarget_digit = x_train[np.where(y_train == idx_nontarget)]
+            vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+            vector_test_pos.append(vector)
+        for idx_neg in neg_list:
+            digit_neg = x_train[np.where(y_train == idx_neg)]
             for i in range(100):
-                vector = cv2.resize(nontarget_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-                vector_nontarget.append(vector)
+                vector = cv2.resize(digit_neg[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+                vector_test_neg.append(vector)
 
-        vector_target_train= np.array(vector_target_train)
-        vector_target_test= np.array(vector_target_test)
-        vector_nontarget= np.array(vector_nontarget)
-        perm_target = np.random.permutation(100)
-        perm_nontarget = np.random.permutation(900)
-        vector_target_val = vector_target_test[perm_target[:10]]
-        vector_nontarget_val = vector_nontarget[perm_nontarget[:90]]
+        vector_train= np.array(vector_train)
+        vector_test_pos= np.array(vector_test_pos)
+        vector_test_neg= np.array(vector_test_neg)
+        perm_pos = np.random.permutation(100)
+        perm_neg = np.random.permutation(900)
+        vector_val_pos = vector_test_pos[perm_pos[:10]]
+        vector_val_neg = vector_test_neg[perm_neg[:90]]
 
 
     else:
@@ -83,16 +85,16 @@ def OC_SVM(dataset,idx):
     for gamma in np.logspace(-10, -1, num=10, base=2):
         for nu in [0.1, 0.01]:
             clf = svm.OneClassSVM(nu=nu, kernel="rbf", gamma=gamma)
-            clf.fit(vector_target_train)
-            y_pred_train = clf.predict(vector_target_train)
-            y_pred_test = clf.predict(vector_target_val)
-            y_pred_nontarget = clf.predict(vector_nontarget_val)
+            clf.fit(vector_train)
+            y_pred_train = clf.predict(vector_train)
+            y_pred_val_pos = clf.predict(vector_val_pos)
+            y_pred_val_neg = clf.predict(vector_val_neg)
 
-            Z_test = clf.decision_function(vector_target_val)
-            Z_nontarget = clf.decision_function(vector_nontarget_val)
+            Z_val_pos = clf.decision_function(vector_val_pos)
+            Z_val_neg = clf.decision_function(vector_val_neg)
 
-            y_true = np.array([1]*len(Z_test)+[0]*len(Z_nontarget))
-            y_score = np.r_[Z_test,Z_nontarget]
+            y_true = np.array([1]*len(Z_val_pos)+[0]*len(Z_val_neg))
+            y_score = np.r_[Z_val_pos,Z_val_neg]
             fpr, tpr, _ = roc_curve(y_true, y_score)
             auc_new = auc(fpr,tpr)
             if auc_new > auc_val :
@@ -101,16 +103,16 @@ def OC_SVM(dataset,idx):
                 nu_opt = nu
 
     clf = svm.OneClassSVM(nu=nu_opt, kernel="rbf", gamma=gamma_opt)
-    clf.fit(vector_target_train)
-    y_pred_train = clf.predict(vector_target_train)
-    y_pred_test = clf.predict(vector_target_test)
-    y_pred_nontarget = clf.predict(vector_nontarget)
+    clf.fit(vector_train)
+    y_pred_train = clf.predict(vector_train)
+    y_pred_test_pos = clf.predict(vector_test_pos)
+    y_pred_test_neg = clf.predict(vector_test_neg)
 
-    Z_test = clf.decision_function(vector_target_test)
-    Z_nontarget = clf.decision_function(vector_nontarget)
+    Z_test_pos = clf.decision_function(vector_test_pos)
+    Z_test_neg = clf.decision_function(vector_test_neg)
 
-    y_true = np.array([1]*len(Z_test)+[0]*len(Z_nontarget))
-    y_score = np.r_[Z_test,Z_nontarget]
+    y_true = np.array([1]*len(Z_test_pos)+[0]*len(Z_test_neg))
+    y_score = np.r_[Z_test_pos,Z_test_neg]
     fpr, tpr, _ = roc_curve(y_true, y_score)
     auc_measure = auc(fpr,tpr)
 

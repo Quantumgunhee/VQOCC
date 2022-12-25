@@ -10,61 +10,102 @@ import tensorflow as tf
 from itertools import combinations
 import cv2
 
-def VQOCC(dataset, encoding, idx, layers, ntrash, lr = 0.1, nepochs = 150, batch_size = 10):
+def QAE_circuit(params, nqubits, ntrash, layers, nparams):
     '''
-    Variational Quantum One-Class Classifier returning AUC measure of the test dataset
-    --------
-    Args :
-        dataset : Dataset for one-class classification "Handwritten" or "FMNIST"
-        encoding : Data encoding method "Amplitude"(Amplitude encoding) or "FRQI"(FRQI encoding)
-        idx : Index of the dataset to be trained/tested for one-class classification
-        layers : The number of parameterized quantum circuit layers
-        ntrash : The number of trash qubits
-        lr : Learning rate
-        nepochs : The number of training epochs
-        batch_size : The size of batch for Training
-    --------
-    Return :
-        auc_measure : AUC measure of the test dataset
+    Create a Quantum Autoencoder Circuit with given parameters
+    '''
+    circuit = models.Circuit(nqubits)
+    if (ntrash <= nqubits/2):
+        for l in range(layers):
+            for idx in range(ntrash):
+                for q in range(nqubits):
+                    #phase rotation
+                    circuit.add(gates.RY(q,params[q+idx*nqubits+l*ntrash*nqubits]))
+                # CZ between trash qubits
+                for i,j in combinations(range(nqubits-ntrash,nqubits),2):
+                    circuit.add(gates.CZ(i,j))
+                # CZ between trash and non-trash qubits
+                for i in range(ntrash):
+                    for j in range(i,nqubits-ntrash,ntrash):
+                        circuit.add(gates.CZ(nqubits-ntrash+((idx+i)%ntrash),j))
+    else :
+        for l in range(layers):
+            for idx in range(nqubits-ntrash):
+                for q in range(nqubits):
+                    #phase rotation
+                    circuit.add(gates.RY(q,params[q+idx*nqubits+l*(nqubits-ntrash)*nqubits]))
+                # CZ between trash qubits
+                for i,j in combinations(range(nqubits-ntrash,nqubits),2):
+                    circuit.add(gates.CZ(i,j))
+                for i in range(nqubits-ntrash):
+                    for j in range(nqubits-ntrash+i,nqubits,nqubits-ntrash):
+                        circuit.add(gates.CZ((idx+i)%(nqubits-ntrash),j))
+    for q in range(ntrash):
+        circuit.add(gates.RY(nqubits-ntrash+q, params[nparams-ntrash+q]))
+
+    return circuit
+
+def cost_hamiltonian(nqubits, ntrash):
+    '''
+    Hamiltonian for evaluating Hamming distance based Cost function
+    '''
+    m0 = K.to_numpy(hamiltonians.Z(ntrash).matrix)
+    m1 = np.eye(2 ** (nqubits - ntrash), dtype=m0.dtype)
+    ham = hamiltonians.Hamiltonian(nqubits, np.kron(m1, m0))
+    return 0.5 * (ham + ntrash)
+
+def data_encoding(dataset, encoding, idx):
+    '''
+        --------
+        Args :
+            dataset : Dataset for one-class classification "Handwritten" or "FMNIST"
+            encoding : Data encoding method "Amplitude"(Amplitude encoding) or "FRQI"(FRQI encoding)
+            idx : Index of the positive data to be trained/tested for one-class classification
+        --------
+        Return :
+            vector_train : train dataset with the positive data
+            vector_test_pos : test dataset with the positive data
+            vector_test_neg : test dataset with the negative data
+            nqubits : the number of qubits required for the given data encoding
     '''
 
-    vector_target_train = []
-    vector_target_test = []
-    vector_nontarget = []
-    idx_list = list(range(10))
-    idx_list.remove(idx)
+    vector_train = []
+    vector_test_pos = []
+    vector_test_neg = []
+    neg_list = list(range(10))
+    neg_list.remove(idx)
 
     if dataset == "Handwritten":
         digits = load_digits()
-        target_digit = digits.data[np.where(digits.target == idx)]
+        digit_pos = digits.data[np.where(digits.target == idx)]
 
         if encoding == "Amplitude":
             nqubits = 6   #number of qubits
             # Data Encoding Amplitude
             for i in range(100):
-                vector_target_train.append(np.array(target_digit[i])/np.linalg.norm(np.array(target_digit[i])))
+                vector_train.append(np.array(digit_pos[i])/np.linalg.norm(np.array(digit_pos[i])))
             for i in range(100,170):
-                vector_target_test.append(np.array(target_digit[i])/np.linalg.norm(np.array(target_digit[i])))
-            for idx_nontarget in idx_list:
-                nontarget_digit = digits.data[np.where(digits.target == idx_nontarget)]
+                vector_test_pos.append(np.array(digit_pos[i])/np.linalg.norm(np.array(digit_pos[i])))
+            for idx_neg in neg_list:
+                digit_neg = digits.data[np.where(digits.target == idx_neg)]
                 for i in range(70):
-                    vector_nontarget.append(np.array(nontarget_digit[i])/np.linalg.norm(np.array(nontarget_digit[i])))
+                    vector_test_neg.append(np.array(digit_neg[i])/np.linalg.norm(np.array(digit_neg[i])))
 
         elif encoding == "FRQI":
             nqubits = 7 # number of qubits
-            target_digit = target_digit/16.0
+            digit_pos = digit_pos/16.0
             # Data Encoding FRQI
             for i in range(100):
-                vector = np.concatenate((np.cos(np.pi/2*np.array(target_digit[i])),np.sin(np.pi/2*np.array(target_digit[i]))))/8.0
-                vector_target_train.append(vector/np.linalg.norm(np.array(vector)))
+                vector = np.concatenate((np.cos(np.pi/2*np.array(digit_pos[i])),np.sin(np.pi/2*np.array(digit_pos[i]))))/8.0
+                vector_train.append(vector/np.linalg.norm(np.array(vector)))
             for i in range(100,170):
-                vector = np.concatenate((np.cos(np.pi/2*np.array(target_digit[i])),np.sin(np.pi/2*np.array(target_digit[i]))))/8.0
-                vector_target_test.append(vector/np.linalg.norm(np.array(vector)))
-            for idx_nontarget in idx_list:
-                nontarget_digit = digits.data[np.where(digits.target == idx_nontarget)]/16.0
+                vector = np.concatenate((np.cos(np.pi/2*np.array(digit_pos[i])),np.sin(np.pi/2*np.array(digit_pos[i]))))/8.0
+                vector_test_pos.append(vector/np.linalg.norm(np.array(vector)))
+            for idx_neg in neg_list:
+                digit_neg = digits.data[np.where(digits.target == idx_neg)]/16.0
                 for i in range(70):
-                    vector = np.concatenate((np.cos(np.pi/2*np.array(nontarget_digit[i])),np.sin(np.pi/2*np.array(nontarget_digit[i]))))/8.0
-                    vector_nontarget.append(vector/np.linalg.norm(np.array(vector)))
+                    vector = np.concatenate((np.cos(np.pi/2*np.array(digit_neg[i])),np.sin(np.pi/2*np.array(digit_neg[i]))))/8.0
+                    vector_test_neg.append(vector/np.linalg.norm(np.array(vector)))
         else:
             raise ValueError(
                 "Amplitude and FRQI encoding is supported"
@@ -73,40 +114,40 @@ def VQOCC(dataset, encoding, idx, layers, ntrash, lr = 0.1, nepochs = 150, batch
         fashion_mnist = tf.keras.datasets.fashion_mnist
         (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
         x_train, x_test = x_train / 255.0, x_test / 255.0
-        target_digit = x_train[np.where(y_train == idx)]
+        digit_pos = x_train[np.where(y_train == idx)]
 
         if encoding == "Amplitude":
             nqubits = 8 # number of qubits
             # Data Encoding Amplitude
             for i in range(100):
-                vector = cv2.resize(target_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-                vector_target_train.append(vector/np.linalg.norm(vector))
+                vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+                vector_train.append(vector/np.linalg.norm(vector))
             for i in range(100,200):
-                vector = cv2.resize(target_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-                vector_target_test.append(vector/np.linalg.norm(vector))
-            for idx_nontarget in idx_list:
-                nontarget_digit = x_train[np.where(y_train == idx_nontarget)]
+                vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+                vector_test_pos.append(vector/np.linalg.norm(vector))
+            for idx_neg in neg_list:
+                digit_neg = x_train[np.where(y_train == idx_neg)]
                 for i in range(100):
-                    vector = cv2.resize(nontarget_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-                    vector_nontarget.append(vector/np.linalg.norm(vector))
+                    vector = cv2.resize(digit_neg[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+                    vector_test_neg.append(vector/np.linalg.norm(vector))
 
         elif encoding == "FRQI":
             nqubits = 9 # number of qubits
             # Data Encoding FRQI
             for i in range(100):
-                vector = cv2.resize(target_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+                vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
                 vector = np.concatenate((np.cos(np.pi/2*np.array(vector)),np.sin(np.pi/2*np.array(vector))))/16.0
-                vector_target_train.append(vector/np.linalg.norm(vector))
+                vector_train.append(vector/np.linalg.norm(vector))
             for i in range(100,200):
-                vector = cv2.resize(target_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+                vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
                 vector = np.concatenate((np.cos(np.pi/2*np.array(vector)),np.sin(np.pi/2*np.array(vector))))/16.0
-                vector_target_test.append(vector/np.linalg.norm(vector))
-            for idx_nontarget in idx_list:
-                nontarget_digit = x_train[np.where(y_train == idx_nontarget)]
+                vector_test_pos.append(vector/np.linalg.norm(vector))
+            for idx_neg in neg_list:
+                digit_neg = x_train[np.where(y_train == idx_neg)]
                 for i in range(100):
-                    vector = cv2.resize(nontarget_digit[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+                    vector = cv2.resize(digit_neg[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
                     vector = np.concatenate((np.cos(np.pi/2*np.array(vector)),np.sin(np.pi/2*np.array(vector))))/16.0
-                    vector_nontarget.append(vector/np.linalg.norm(vector))
+                    vector_test_neg.append(vector/np.linalg.norm(vector))
         else:
             raise ValueError(
                 "Amplitude and FRQI encoding is supported"
@@ -116,104 +157,96 @@ def VQOCC(dataset, encoding, idx, layers, ntrash, lr = 0.1, nepochs = 150, batch
             "Handwritten digit and Fashion MNIST datasets are supported"
         )
 
-    assert ntrash < nqubits
+    return vector_train, vector_test_pos, vector_test_neg, nqubits
 
-    # number of parameters
-    if (ntrash <= nqubits/2):
-        nparams = ntrash * (nqubits * layers + 1)
-    else:
-        nparams = (nqubits-ntrash)*nqubits*layers + ntrash
+class VQOCC_circuit():
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
-
-    def QAE_circuit(params):
+    def __init__(self, nqubits, ntrash, layers):
         '''
-        Create a Quantum Autoencoder Circuit with given parameters
+        Variational Quantum One-Class Classifier
+        --------
+        Args :
+            nqubits : The number of qubits
+            ntrash : The number of trash qubits
+            layers : The number of parameterized quantum circuit layers
+        --------
         '''
-        circuit = models.Circuit(nqubits)
+        assert ntrash < nqubits
+
+        self.nqubits = nqubits
+        self.ntrash = ntrash
+        self.layers = layers
+
         if (ntrash <= nqubits/2):
-            for l in range(layers):
-                for idx in range(ntrash):
-                    for q in range(nqubits):
-                        #phase rotation
-                        circuit.add(gates.RY(q,params[q+idx*nqubits+l*ntrash*nqubits]))
-                    # CZ between trash qubits
-                    for i,j in combinations(range(nqubits-ntrash,nqubits),2):
-                        circuit.add(gates.CZ(i,j))
-                    # CZ between trash and non-trash qubits
-                    for i in range(ntrash):
-                        for j in range(i,nqubits-ntrash,ntrash):
-                            circuit.add(gates.CZ(nqubits-ntrash+((idx+i)%ntrash),j))
-        else :
-            for l in range(layers):
-                for idx in range(nqubits-ntrash):
-                    for q in range(nqubits):
-                        #phase rotation
-                        circuit.add(gates.RY(q,params[q+idx*nqubits+l*(nqubits-ntrash)*nqubits]))
-                    # CZ between trash qubits
-                    for i,j in combinations(range(nqubits-ntrash,nqubits),2):
-                        circuit.add(gates.CZ(i,j))
-                    for i in range(nqubits-ntrash):
-                        for j in range(nqubits-ntrash+i,nqubits,nqubits-ntrash):
-                            circuit.add(gates.CZ((idx+i)%(nqubits-ntrash),j))
-        for q in range(ntrash):
-            circuit.add(gates.RY(nqubits-ntrash+q, params[nparams-ntrash+q]))
+            nparams = ntrash * (nqubits * layers + 1)
+        else:
+            nparams = (nqubits-ntrash)*nqubits*layers + ntrash
 
-        return circuit
+        self.nparams = nparams
+        self.params = tf.Variable(tf.random.uniform((nparams,), dtype=tf.float64))
+        self.circuit = QAE_circuit(self.params, nqubits, ntrash, layers, nparams)
 
-    def cost_hamiltonian(nqubits, ntrash):
+    def circuit_train_vqocc(self,vector_train,lr=0.1,nepochs=150,batch_size=10,verbose_loss=False):
         '''
-        Hamiltonian for evaluating Hamming distance based Cost function
+        --------
+        Args :
+            vector_train : train dataset with the positive data
+            lr : Learning rate
+            nepochs : The number of training epochs
+            batch_size : The size of batch for Training
+            verbose_loss : returning the loss history
+        --------
         '''
-        m0 = K.to_numpy(hamiltonians.Z(ntrash).matrix)
-        m1 = np.eye(2 ** (nqubits - ntrash), dtype=m0.dtype)
-        ham = hamiltonians.Hamiltonian(nqubits, np.kron(m1, m0))
-        return 0.5 * (ham + ntrash)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
 
-    params = tf.Variable(tf.random.uniform((nparams,), dtype=tf.float64))
-    circuit = QAE_circuit(params)
+        params = self.params
+        loss_history = []
+        self.cost_fn = "vqocc"
+        ntrash = self.ntrash
 
-    ham = cost_hamiltonian(nqubits,ntrash)
-    for ep in range(nepochs):
-        # Training Quantum circuit with loss functions evaluated from Hamiltonian
-        # using Tensorflow automatic differentiation
-        with tf.GradientTape() as tape:
-            circuit.set_parameters(params)
-            batch_index = np.random.randint(0, len(vector_target_train), (batch_size,))
-            vector_batch = [vector_target_train[i] for i in batch_index]
-            loss = 0
-            for i in range(batch_size):
-                final_state = circuit.execute(tf.constant(vector_batch[i]))
-                loss += ham.expectation(final_state)/(ntrash*batch_size)
-        grads = tape.gradient(loss, params)
-        optimizer.apply_gradients(zip([grads], [params]))
+        ham = cost_hamiltonian(self.nqubits,ntrash)
+        for ep in range(nepochs):
+            # Training Quantum circuit with loss functions evaluated from Hamiltonian
+            # using Tensorflow automatic differentiation
+            with tf.GradientTape() as tape:
+                self.circuit.set_parameters(params)
+                batch_index = np.random.randint(0, len(vector_train), (batch_size,))
+                vector_batch = [vector_train[i] for i in batch_index]
+                loss = 0
+                for i in range(batch_size):
+                    final_state = self.circuit.execute(tf.constant(vector_batch[i]))
+                    loss += ham.expectation(final_state)/(ntrash*batch_size)
+            grads = tape.gradient(loss, params)
+            optimizer.apply_gradients(zip([grads], [params]))
+            loss_history.append(loss)
 
-    circuit.set_parameters(params) # setting quantum circuit with optimized parameters
-    cost_test = []
-    cost_nontarget = []
-    #Evaluating cost functions for one-class classification
-    for i in range(len(vector_target_test)):
-        final_state = circuit.execute(tf.constant(vector_target_test[i]))
-        cost_test.append((ham.expectation(final_state)/ntrash).numpy())
-    for i in range(len(vector_nontarget)):
-        final_state = circuit.execute(tf.constant(vector_nontarget[i]))
-        cost_nontarget.append((ham.expectation(final_state)/ntrash).numpy())
+        self.params = params
 
-    #Evaluating AUC measure
-    y_true = np.array([0]*len(cost_test)+[1]*len(cost_nontarget))
-    y_score = np.array(cost_test + cost_nontarget)
-    fpr, tpr, _ = roc_curve(y_true, y_score)
-    auc_measure = auc(fpr,tpr)
+        if verbose_loss == True :
+            return loss_history
 
-    return auc_measure
 
-#Example usage
+    def auc_test(self,vector_test_pos,vector_test_neg):
+        '''
+        Return :
+            auc_measure : AUC measure of the test dataset
+        '''
+        self.circuit.set_parameters(self.params)
+        cost_pos = []
+        cost_neg = []
+        #Evaluating cost functions for one-class classification
+        ntrash = self.ntrash
+        ham = cost_hamiltonian(self.nqubits,ntrash)
+        for i in range(len(vector_test_pos)):
+            final_state = self.circuit.execute(tf.constant(vector_test_pos[i]))
+            cost_pos.append((ham.expectation(final_state)/ntrash).numpy())
+        for i in range(len(vector_test_neg)):
+            final_state = self.circuit.execute(tf.constant(vector_test_neg[i]))
+            cost_neg.append((ham.expectation(final_state)/ntrash).numpy())
 
-if __name__ == '__main__':
-    idx = 0
-    ntrash = 2
-    layers = 2
-
-    print("Training index %d with %d trash qubits and %d layers" %(idx,ntrash,layers))
-    auc_measure = VQOCC(dataset="Handwritten",encoding="FRQI",idx=idx,layers=layers,ntrash=ntrash)
-    print("AUC measure is %f" %auc_measure)
+        #Evaluating AUC measure
+        y_true = np.array([0]*len(cost_pos)+[1]*len(cost_neg))
+        y_score = np.array(cost_pos + cost_neg)
+        fpr, tpr, _ = roc_curve(y_true, y_score)
+        auc_measure = auc(fpr,tpr)
+        return auc_measure

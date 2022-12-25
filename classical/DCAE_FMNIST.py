@@ -19,33 +19,33 @@ def DCAE(idx, lr, wt):
     fashion_mnist = tf.keras.datasets.fashion_mnist
     (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
     x_train, x_test = x_train / 255.0, x_test / 255.0
-    idx_list = list(range(10))
-    idx_list.remove(idx)
+    neg_list = list(range(10))
+    neg_list.remove(idx)
     vector_train = []
-    vector_test = []
-    vector_nontarget = []
-    digit_target = x_train[np.where(y_train == idx)]
+    vector_test_pos = []
+    vector_test_neg = []
+    digit_pos = x_train[np.where(y_train == idx)]
     for i in range(100):
-        vector = cv2.resize(digit_target[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+        vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
         vector_train.append(vector)
     for i in range(100,200):
-        vector = cv2.resize(digit_target[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-        vector_test.append(vector)
-    for idx_nontarget in idx_list:
-        digit_nontarget = x_train[np.where(y_train == idx_nontarget)]
+        vector = cv2.resize(digit_pos[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+        vector_test_pos.append(vector)
+    for idx_neg in neg_list:
+        digit_neg = x_train[np.where(y_train == idx_neg)]
         for i in range(100):
-            vector = cv2.resize(digit_nontarget[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
-            vector_nontarget.append(vector)
+            vector = cv2.resize(digit_neg[i],dsize=(16, 16), interpolation=cv2.INTER_CUBIC).flatten()
+            vector_test_neg.append(vector)
     vector_train = np.array(vector_train)
-    vector_test = np.array(vector_test)
-    vector_nontarget = np.array(vector_nontarget)
+    vector_test_pos = np.array(vector_test_pos)
+    vector_test_neg = np.array(vector_test_neg)
 
     vector_train = vector_train.reshape(100,1,16,16)
     vector_train = torch.from_numpy(vector_train)
-    vector_test = vector_test.reshape(vector_test.shape[0],1,16,16)
-    vector_test = torch.from_numpy(vector_test)
-    vector_nontarget = vector_nontarget.reshape(vector_nontarget.shape[0],1,16,16)
-    vector_nontarget = torch.from_numpy(vector_nontarget)
+    vector_test_pos = vector_test_pos.reshape(vector_test_pos.shape[0],1,16,16)
+    vector_test_pos = torch.from_numpy(vector_test_pos)
+    vector_test_neg = vector_test_neg.reshape(vector_test_neg.shape[0],1,16,16)
+    vector_test_neg = torch.from_numpy(vector_test_neg)
 
     train_dataloader = DataLoader(vector_train, batch_size=10, shuffle=True)
 
@@ -116,18 +116,18 @@ def DCAE(idx, lr, wt):
     for epoch in range(n_epochs):
         train(epoch)
 
-    test_vec = Variable(vector_test)
-    output = autoencoder(test_vec.float())
-    scores_test = torch.sum((output - test_vec) ** 2, dim=tuple(range(1, output.dim())))
-    scores_test = scores_test.detach().numpy()
+    test_pos_vec = Variable(vector_test_pos)
+    output = autoencoder(test_pos_vec.float())
+    scores_pos = torch.sum((output - test_pos_vec) ** 2, dim=tuple(range(1, output.dim())))
+    scores_pos = scores_pos.detach().numpy()
 
-    nontarget_vec = Variable(vector_nontarget)
-    output = autoencoder(nontarget_vec.float())
-    scores_nontarget = torch.sum((output - nontarget_vec) ** 2, dim=tuple(range(1, output.dim())))
-    scores_nontarget = scores_nontarget.detach().numpy()
+    test_neg_vec = Variable(vector_test_neg)
+    output = autoencoder(test_neg_vec.float())
+    scores_neg = torch.sum((output - test_neg_vec) ** 2, dim=tuple(range(1, output.dim())))
+    scores_neg = scores_neg.detach().numpy()
 
-    y_true = np.array([0]*len(scores_test)+[1]*len(scores_nontarget))
-    y_score = np.append(scores_test,scores_nontarget)
+    y_true = np.array([0]*len(scores_pos)+[1]*len(scores_neg))
+    y_score = np.append(scores_pos,scores_neg)
     fpr, tpr, _ = roc_curve(y_true, y_score)
     auc_measure = auc(fpr,tpr)
 
