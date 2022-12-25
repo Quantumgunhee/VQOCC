@@ -203,17 +203,19 @@ class VQOCC_circuit():
         loss_history = []
         ntrash = self.ntrash
 
+        circuit = self.circuit
+
         ham = cost_hamiltonian(self.nqubits,ntrash)
         for ep in range(nepochs):
             # Training Quantum circuit with loss functions evaluated from Hamiltonian
             # using Tensorflow automatic differentiation
             with tf.GradientTape() as tape:
-                self.circuit.set_parameters(params)
+                circuit.set_parameters(params)
                 batch_index = np.random.randint(0, len(vector_train), (batch_size,))
                 vector_batch = [vector_train[i] for i in batch_index]
                 loss = 0
                 for i in range(batch_size):
-                    final_state = self.circuit.execute(tf.constant(vector_batch[i]))
+                    final_state = circuit.execute(tf.constant(vector_batch[i]))
                     loss += ham.expectation(final_state)/(ntrash*batch_size)
             grads = tape.gradient(loss, params)
             optimizer.apply_gradients(zip([grads], [params]))
@@ -230,17 +232,18 @@ class VQOCC_circuit():
         Return :
             auc_measure : AUC measure of the test dataset
         '''
-        self.circuit.set_parameters(self.params)
+        circuit = self.circuit
+        circuit.set_parameters(self.params)
         cost_pos = []
         cost_neg = []
         #Evaluating cost functions for one-class classification
         ntrash = self.ntrash
         ham = cost_hamiltonian(self.nqubits,ntrash)
         for i in range(len(vector_test_pos)):
-            final_state = self.circuit.execute(tf.constant(vector_test_pos[i]))
+            final_state = circuit.execute(tf.constant(vector_test_pos[i]))
             cost_pos.append((ham.expectation(final_state)/ntrash).numpy())
         for i in range(len(vector_test_neg)):
-            final_state = self.circuit.execute(tf.constant(vector_test_neg[i]))
+            final_state = circuit.execute(tf.constant(vector_test_neg[i]))
             cost_neg.append((ham.expectation(final_state)/ntrash).numpy())
 
         #Evaluating AUC measure
